@@ -1,0 +1,113 @@
+{
+  "_comment": "Peers relay node. Source of truth for the install script is install.sh; run ./build-egg.sh to regenerate egg-peers-node.json.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-08-06T00:00:00+00:00",
+  "name": "Peers Node",
+  "author": "peers@peerstech.dev",
+  "description": "An always-on relay node for Peers, the serverless E2E-encrypted messenger. Two people behind ordinary home routers cannot connect directly; this node gives them a rendezvous point, then gets out of the way once DCUtR hole-punches a direct connection. It only ever sees ciphertext and routing metadata.",
+  "features": null,
+  "docker_images": {
+    "Peers Node (ghcr)": "ghcr.io/peerstech/ptero-egg:latest",
+    "Peers Node (build locally from Dockerfile)": "peers-node:local"
+  },
+  "file_denylist": [],
+  "startup": "./start.sh",
+  "config": {
+    "files": "{}",
+    "startup": "{\r\n    \"done\": \"peers node is up.\"\r\n}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\n# Peers node — Pterodactyl installation script.\n#\n# Runs in a throwaway Debian container with the server's data volume mounted\n# at /mnt/server. Nothing outside /mnt/server survives.\n#\n# This file is the source of truth. `./build-egg.sh` embeds it into\n# egg-peers-node.json, which is what you actually import into the panel.\n\nset -euo pipefail\n\nINSTALL_METHOD=\"${INSTALL_METHOD:-source}\"\nPEERS_REF=\"${PEERS_REF:-main}\"\nPEERS_REPO=\"${PEERS_REPO:-https://github.com/PeersTech/Peers.git}\"\n\nsay() { printf '\\n\\033[1;36m[peers]\\033[0m %s\\n' \"$*\"; }\ndie() { printf '\\n\\033[1;31m[peers] %s\\033[0m\\n' \"$*\" >&2; exit 1; }\n\nmkdir -p /mnt/server\nsay \"install method: ${INSTALL_METHOD}\"\n\nexport DEBIAN_FRONTEND=noninteractive\napt-get update -qq\napt-get install -y -qq --no-install-recommends ca-certificates curl git file jq\n\n# --------------------------------------------------------------------------\n# The node's identity is its peer ID. Every client stores that ID in its\n# nodes.json, so losing this file silently breaks every one of them — they\n# keep dialling an address that now answers as somebody else. Nothing below\n# writes to this path, but say so loudly either way.\n# --------------------------------------------------------------------------\nIDENTITY=\"/mnt/server/.config/peers/node_identity.json\"\nif [ -f \"${IDENTITY}\" ]; then\n    say \"existing node identity found — keeping it, peer ID will not change\"\nelse\n    say \"no existing identity; one will be generated on first boot\"\nfi\nmkdir -p /mnt/server/.config/peers\n\ncase \"${INSTALL_METHOD}\" in\nrelease)\n    say \"looking for a published release binary\"\n    API=\"https://api.github.com/repos/PeersTech/Peers/releases/latest\"\n    URL=\"$(curl -fsSL \"${API}\" 2>/dev/null \\\n        | jq -r '.assets[]?.browser_download_url | select(test(\"linux|x86_64\"))' \\\n        | head -n1 || true)\"\n\n    if [ -z \"${URL}\" ] || [ \"${URL}\" = \"null\" ]; then\n        die \"No release asset found.\n\nPeersTech/Peers has not published any GitHub Releases yet, so there is\nnothing for this option to download. Until a release is cut, set the\nINSTALL_METHOD variable to 'source' and reinstall.\n\n(If you have just published one, make sure the asset filename contains\n'linux' or 'x86_64' so this script can identify it.)\"\n    fi\n\n    say \"downloading ${URL}\"\n    curl -fsSL -o /mnt/server/peers \"${URL}\" || die \"download failed\"\n    ;;\n\nsource)\n    say \"installing build dependencies (this is the slow part)\"\n    # Tauri is an unconditional dependency of the crate, so even the headless\n    # --node build links against webkit/GTK and needs their -dev packages\n    # present at compile time.\n    apt-get install -y -qq --no-install-recommends \\\n        build-essential pkg-config \\\n        libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \\\n        librsvg2-dev patchelf libxdo-dev libssl-dev\n\n    say \"installing rust\"\n    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \\\n        | sh -s -- -y --profile minimal --default-toolchain stable >/dev/null\n    # shellcheck disable=SC1091\n    . \"${HOME}/.cargo/env\"\n\n    say \"cloning ${PEERS_REPO} @ ${PEERS_REF}\"\n    rm -rf /tmp/peers\n    git clone --depth 1 --branch \"${PEERS_REF}\" \"${PEERS_REPO}\" /tmp/peers \\\n        || die \"clone failed — is PEERS_REF '${PEERS_REF}' a real branch or tag?\"\n    cd /tmp/peers\n\n    # ---------------------------------------------------------------------\n    # tauri_build::build() runs generate_context!(), which reads the compiled\n    # frontend from frontend/dist. That directory is gitignored, so it does\n    # not exist in a fresh clone and the build dies with an error that never\n    # mentions the frontend. A node serves no UI, so a stub is enough —\n    # upstream CI does exactly this.\n    # ---------------------------------------------------------------------\n    mkdir -p frontend/dist\n    if [ ! -f frontend/dist/index.html ]; then\n        printf '<!doctype html><title>peers node</title>' > frontend/dist/index.html\n    fi\n\n    # backend/ is a standalone crate, not a workspace member.\n    cd backend\n\n    # Linking a full Tauri binary is memory-hungry; unbounded parallelism is\n    # what turns a slow install into an OOM kill on a small node.\n    JOBS=\"${CARGO_BUILD_JOBS:-2}\"\n    say \"building (jobs=${JOBS}) — expect 10-25 minutes on a small VPS\"\n    cargo build --release --jobs \"${JOBS}\" \\\n        || die \"cargo build failed.\n\nThe usual cause is the install container running out of memory while\nlinking. Give this server more RAM for the install, or lower the\nCARGO_BUILD_JOBS variable to 1 and reinstall.\"\n\n    cp target/release/peers /mnt/server/peers\n    ;;\n\n*)\n    die \"unknown INSTALL_METHOD '${INSTALL_METHOD}' (expected 'source' or 'release')\"\n    ;;\nesac\n\nchmod +x /mnt/server/peers\nfile /mnt/server/peers || true\n\n# --------------------------------------------------------------------------\n# Launcher. This exists rather than putting everything in the egg's startup\n# command because two of the variables cannot be passed unconditionally:\n#\n#   PEERS_NO_RELAY is presence-checked by the node (`env::var(..).is_ok()`),\n#   so exporting it as an empty string still disables relaying — silently\n#   turning a relay node into one that forwards nothing.\n#\n#   PEERS_ANNOUNCE must carry the same port the node is listening on, and\n#   getting that pairing wrong is the single most common node misconfiguration.\n#   Building it here from SERVER_PORT means it cannot drift.\n# --------------------------------------------------------------------------\ncat > /mnt/server/start.sh <<'LAUNCHER'\n#!/bin/bash\nset -u\ncd /home/container || exit 1\n\nPORT=\"${SERVER_PORT:-4001}\"\nexport PEERS_PORT=\"${PORT}\"\n\n# Cloud and container hosts almost never have the public IP on the interface\n# the node can see, so it cannot work this out for itself.\nIP=\"${PEERS_PUBLIC_IP:-}\"\nif [ \"${IP}\" = \"auto\" ]; then\n    IP=\"$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || true)\"\n    if [ -z \"${IP}\" ]; then\n        echo \"[peers] could not auto-detect a public IP; set PEERS_PUBLIC_IP manually\" >&2\n    else\n        echo \"[peers] detected public IP: ${IP}\"\n    fi\nfi\n\n# An explicit PEERS_ANNOUNCE always wins, for setups this cannot express\n# (IPv6, DNS names, a different external port).\nif [ -n \"${PEERS_ANNOUNCE:-}\" ]; then\n    export PEERS_ANNOUNCE\nelif [ -n \"${IP}\" ]; then\n    export PEERS_ANNOUNCE=\"/ip4/${IP}/tcp/${PORT},/ip4/${IP}/udp/${PORT}/quic-v1\"\nfi\n\nif [ -n \"${PEERS_NODES:-}\" ]; then\n    export PEERS_NODES\nelse\n    unset PEERS_NODES\nfi\n\n# Presence, not value, is what disables relaying — so only set it when on.\ncase \"${PEERS_NO_RELAY:-0}\" in\n    1|true|TRUE|yes|on) export PEERS_NO_RELAY=1 ;;\n    *)                  unset PEERS_NO_RELAY ;;\nesac\n\necho \"[peers] port ${PEERS_PORT} (tcp+udp)  announce=${PEERS_ANNOUNCE:-<none>}\"\nexec ./peers --node\nLAUNCHER\nchmod +x /mnt/server/start.sh\n\nsay \"install complete\"\n",
+      "container": "debian:bookworm-slim",
+      "entrypoint": "bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Install method",
+      "description": "'source' builds the node from the git repository (slow — 10-25 minutes — but always works). 'release' downloads a prebuilt binary from GitHub Releases. NOTE: PeersTech/Peers has not published any releases yet, so 'release' will fail with an explanatory message until one is cut. Leave this on 'source'.",
+      "env_variable": "INSTALL_METHOD",
+      "default_value": "source",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:source,release",
+      "field_type": "text"
+    },
+    {
+      "name": "Git ref",
+      "description": "Branch, tag or commit to build when INSTALL_METHOD is 'source'. Pin this to a tag or commit SHA for a reproducible node; 'main' moves under you.",
+      "env_variable": "PEERS_REF",
+      "default_value": "main",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:100",
+      "field_type": "text"
+    },
+    {
+      "name": "Repository URL",
+      "description": "Git repository to build from. Change only if you maintain a fork.",
+      "env_variable": "PEERS_REPO",
+      "default_value": "https://github.com/PeersTech/Peers.git",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|string|max:200",
+      "field_type": "text"
+    },
+    {
+      "name": "Public IP",
+      "description": "The address clients will dial. Set 'auto' to detect it at boot, or enter the IP directly. REQUIRED on almost every host: containers see only an internal address, so without this the node advertises something unreachable and no client can use it. Leave blank only if the container genuinely holds a public IP on its own interface.",
+      "env_variable": "PEERS_PUBLIC_IP",
+      "default_value": "auto",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:100",
+      "field_type": "text"
+    },
+    {
+      "name": "Announce override",
+      "description": "Advanced. Full comma-separated multiaddrs to advertise, e.g. /ip4/1.2.3.4/tcp/4001,/ip4/1.2.3.4/udp/4001/quic-v1 — without the /p2p/<id> suffix. Overrides Public IP entirely. Use for IPv6, DNS names, or when the external port differs from the container's port.",
+      "env_variable": "PEERS_ANNOUNCE",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:500",
+      "field_type": "text"
+    },
+    {
+      "name": "Upstream nodes",
+      "description": "Optional. Comma-separated multiaddrs of other Peers nodes to dial and reserve relay slots on, so nodes can chain. Each must include the /p2p/<peer-id> suffix.",
+      "env_variable": "PEERS_NODES",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:1000",
+      "field_type": "text"
+    },
+    {
+      "name": "Disable relaying",
+      "description": "Set to 1 to forward nothing. This turns off the only reason to run a node, so leave it at 0 unless you are deliberately running a DHT-only participant on a metered connection.",
+      "env_variable": "PEERS_NO_RELAY",
+      "default_value": "0",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:0,1",
+      "field_type": "text"
+    },
+    {
+      "name": "Build parallelism",
+      "description": "cargo build --jobs. Linking a Tauri binary is memory-hungry; lower this to 1 if the install is killed partway through.",
+      "env_variable": "CARGO_BUILD_JOBS",
+      "default_value": "2",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,16",
+      "field_type": "text"
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "_comment": "Peers relay node. Source of truth for the install script is install.sh; run ./build-egg.sh to regenerate egg-peers-node.json.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-08-06T00:00:00+00:00",
+  "name": "Peers Node",
+  "author": "peers@peerstech.dev",
+  "description": "An always-on relay node for Peers, the serverless E2E-encrypted messenger. Two people behind ordinary home routers cannot connect directly; this node gives them a rendezvous point, then gets out of the way once DCUtR hole-punches a direct connection. It only ever sees ciphertext and routing metadata.",
+  "features": null,
+  "docker_images": {
+    "Peers Node (ghcr)": "ghcr.io/peerstech/ptero-egg:latest",
+    "Peers Node (build locally from Dockerfile)": "peers-node:local"
+  },
+  "file_denylist": [],
+  "startup": "./start.sh",
+  "config": {
+    "files": "{}",
+    "startup": "{\r\n    \"done\": \"peers node is up.\"\r\n}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "placeholder — replaced by build-egg.sh",
+      "container": "debian:bookworm-slim",
+      "entrypoint": "bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Install method",
+      "description": "'source' builds the node from the git repository (slow — 10-25 minutes — but always works). 'release' downloads a prebuilt binary from GitHub Releases. NOTE: PeersTech/Peers has not published any releases yet, so 'release' will fail with an explanatory message until one is cut. Leave this on 'source'.",
+      "env_variable": "INSTALL_METHOD",
+      "default_value": "source",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:source,release",
+      "field_type": "text"
+    },
+    {
+      "name": "Git ref",
+      "description": "Branch, tag or commit to build when INSTALL_METHOD is 'source'. Pin this to a tag or commit SHA for a reproducible node; 'main' moves under you.",
+      "env_variable": "PEERS_REF",
+      "default_value": "main",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:100",
+      "field_type": "text"
+    },
+    {
+      "name": "Repository URL",
+      "description": "Git repository to build from. Change only if you maintain a fork.",
+      "env_variable": "PEERS_REPO",
+      "default_value": "https://github.com/PeersTech/Peers.git",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|string|max:200",
+      "field_type": "text"
+    },
+    {
+      "name": "Public IP",
+      "description": "The address clients will dial. Set 'auto' to detect it at boot, or enter the IP directly. REQUIRED on almost every host: containers see only an internal address, so without this the node advertises something unreachable and no client can use it. Leave blank only if the container genuinely holds a public IP on its own interface.",
+      "env_variable": "PEERS_PUBLIC_IP",
+      "default_value": "auto",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:100",
+      "field_type": "text"
+    },
+    {
+      "name": "Announce override",
+      "description": "Advanced. Full comma-separated multiaddrs to advertise, e.g. /ip4/1.2.3.4/tcp/4001,/ip4/1.2.3.4/udp/4001/quic-v1 — without the /p2p/<id> suffix. Overrides Public IP entirely. Use for IPv6, DNS names, or when the external port differs from the container's port.",
+      "env_variable": "PEERS_ANNOUNCE",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:500",
+      "field_type": "text"
+    },
+    {
+      "name": "Upstream nodes",
+      "description": "Optional. Comma-separated multiaddrs of other Peers nodes to dial and reserve relay slots on, so nodes can chain. Each must include the /p2p/<peer-id> suffix.",
+      "env_variable": "PEERS_NODES",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:1000",
+      "field_type": "text"
+    },
+    {
+      "name": "Disable relaying",
+      "description": "Set to 1 to forward nothing. This turns off the only reason to run a node, so leave it at 0 unless you are deliberately running a DHT-only participant on a metered connection.",
+      "env_variable": "PEERS_NO_RELAY",
+      "default_value": "0",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:0,1",
+      "field_type": "text"
+    },
+    {
+      "name": "Build parallelism",
+      "description": "cargo build --jobs. Linking a Tauri binary is memory-hungry; lower this to 1 if the install is killed partway through.",
+      "env_variable": "CARGO_BUILD_JOBS",
+      "default_value": "2",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,16",
+      "field_type": "text"
+    }
+  ]
+}
