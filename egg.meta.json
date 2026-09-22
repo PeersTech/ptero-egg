@@ -23,7 +23,7 @@
   },
   "scripts": {
     "installation": {
-      "script": "placeholder — replaced by build-egg.sh",
+      "script": "placeholder. Replaced by build-egg.sh",
       "container": "debian:bookworm-slim",
       "entrypoint": "bash"
     }
@@ -31,7 +31,7 @@
   "variables": [
     {
       "name": "Install method",
-      "description": "'source' builds the node from the git repository (slow — 10-25 minutes — but always works). 'release' downloads a prebuilt binary from GitHub Releases. NOTE: PeersTech/Peers has not published any releases yet, so 'release' will fail with an explanatory message until one is cut. Leave this on 'source'.",
+      "description": "'source' builds the node from the git repository (slow, 10-25 minutes, but always works). 'release' downloads a prebuilt binary from GitHub Releases. NOTE: PeersTech/Peers has not published any releases yet, so 'release' will fail with an explanatory message until one is cut. Leave this on 'source'.",
       "env_variable": "INSTALL_METHOD",
       "default_value": "source",
       "user_viewable": true,
@@ -41,7 +41,7 @@
     },
     {
       "name": "Git ref",
-      "description": "Branch, tag or commit to build when INSTALL_METHOD is 'source'. Pin this to a tag or commit SHA for a reproducible node; 'main' moves under you.",
+      "description": "Branch or tag to build when INSTALL_METHOD is 'source'. Pin this to a tag for a reproducible node; 'main' moves under you.",
       "env_variable": "PEERS_REF",
       "default_value": "main",
       "user_viewable": true,
@@ -71,7 +71,7 @@
     },
     {
       "name": "Announce override",
-      "description": "Advanced. Full comma-separated multiaddrs to advertise, e.g. /ip4/1.2.3.4/tcp/4001,/ip4/1.2.3.4/udp/4001/quic-v1 — without the /p2p/<id> suffix. Overrides Public IP entirely. Use for IPv6, DNS names, or when the external port differs from the container's port.",
+      "description": "Advanced. Full comma-separated multiaddrs to advertise, e.g. /ip4/1.2.3.4/tcp/4001,/ip4/1.2.3.4/udp/4001/quic-v1, without the /p2p/<id> suffix. Overrides Public IP entirely. Use for IPv6, DNS names, or when the external port differs from the container's port.",
       "env_variable": "PEERS_ANNOUNCE",
       "default_value": "",
       "user_viewable": true,

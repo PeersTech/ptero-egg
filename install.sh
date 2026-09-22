@@ -1,5 +1,5 @@
 #!/bin/bash
-# Peers node — Pterodactyl installation script.
+# Peers node. Pterodactyl installation script.
 #
 # Runs in a throwaway Debian container with the server's data volume mounted
 # at /mnt/server. Nothing outside /mnt/server survives.
@@ -25,13 +25,13 @@ apt-get install -y -qq --no-install-recommends ca-certificates curl git file jq
 
 # --------------------------------------------------------------------------
 # The node's identity is its peer ID. Every client stores that ID in its
-# nodes.json, so losing this file silently breaks every one of them — they
+# nodes.json, so losing this file silently breaks every one of them. They
 # keep dialling an address that now answers as somebody else. Nothing below
 # writes to this path, but say so loudly either way.
 # --------------------------------------------------------------------------
 IDENTITY="/mnt/server/.config/peers/node_identity.json"
 if [ -f "${IDENTITY}" ]; then
-    say "existing node identity found — keeping it, peer ID will not change"
+    say "existing node identity found, peer ID will not change"
 else
     say "no existing identity; one will be generated on first boot"
 fi
@@ -79,15 +79,15 @@ source)
     say "cloning ${PEERS_REPO} @ ${PEERS_REF}"
     rm -rf /tmp/peers
     git clone --depth 1 --branch "${PEERS_REF}" "${PEERS_REPO}" /tmp/peers \
-        || die "clone failed — is PEERS_REF '${PEERS_REF}' a real branch or tag?"
+        || die "clone failed. Is PEERS_REF '${PEERS_REF}' a real branch or tag?"
     cd /tmp/peers
 
     # ---------------------------------------------------------------------
     # tauri_build::build() runs generate_context!(), which reads the compiled
     # frontend from frontend/dist. That directory is gitignored, so it does
     # not exist in a fresh clone and the build dies with an error that never
-    # mentions the frontend. A node serves no UI, so a stub is enough —
-    # upstream CI does exactly this.
+    # mentions the frontend. A node serves no UI, so a stub is enough.
+    # Upstream CI does exactly this.
     # ---------------------------------------------------------------------
     mkdir -p frontend/dist
     if [ ! -f frontend/dist/index.html ]; then
@@ -100,7 +100,7 @@ source)
     # Linking a full Tauri binary is memory-hungry; unbounded parallelism is
     # what turns a slow install into an OOM kill on a small node.
     JOBS="${CARGO_BUILD_JOBS:-2}"
-    say "building (jobs=${JOBS}) — expect 10-25 minutes on a small VPS"
+    say "building (jobs=${JOBS}). Expect 10-25 minutes on a small VPS"
     cargo build --release --jobs "${JOBS}" \
         || die "cargo build failed.
 
@@ -124,7 +124,7 @@ file /mnt/server/peers || true
 # command because two of the variables cannot be passed unconditionally:
 #
 #   PEERS_NO_RELAY is presence-checked by the node (`env::var(..).is_ok()`),
-#   so exporting it as an empty string still disables relaying — silently
+#   so exporting it as an empty string still disables relaying, silently
 #   turning a relay node into one that forwards nothing.
 #
 #   PEERS_ANNOUNCE must carry the same port the node is listening on, and
@@ -165,7 +165,7 @@ else
     unset PEERS_NODES
 fi
 
-# Presence, not value, is what disables relaying — so only set it when on.
+# Presence, not value, is what disables relaying, so only set it when on.
 case "${PEERS_NO_RELAY:-0}" in
     1|true|TRUE|yes|on) export PEERS_NO_RELAY=1 ;;
     *)                  unset PEERS_NO_RELAY ;;

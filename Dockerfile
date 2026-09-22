@@ -3,7 +3,7 @@
 # Why this exists: `peers` is one binary that decides at runtime whether to
 # open a window (`peers`) or run headless (`peers --node`). Tauri is an
 # unconditional dependency of the crate, so the binary is *linked* against
-# webkit2gtk/GTK even in `--node` mode — the dynamic loader resolves those
+# webkit2gtk/GTK even in `--node` mode. The dynamic loader resolves those
 # libraries at process start, before any of your code runs, so the node will
 # not boot without them. None of the stock yolks images carry them.
 #
