@@ -1,0 +1,12 @@
+name: Make image public (one-off)
+on: workflow_dispatch
+permissions:
+  contents: read
+  packages: write
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api -X PATCH orgs/PeersTech/packages/container/ptero-egg -f visibility=public --jq '{name, visibility, html_url}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
