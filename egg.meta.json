@@ -11,7 +11,7 @@
   "features": null,
   "docker_images": {
     "Peers Node (ghcr)": "ghcr.io/peerstech/ptero-egg:latest",
-    "Peers Node (build locally from Dockerfile)": "peers-node:local"
+    "Peers Node (build locally from Dockerfile)": "~peers-node:local"
   },
   "file_denylist": [],
   "startup": "./start.sh",

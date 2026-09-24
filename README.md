@@ -8,9 +8,10 @@ Both peers dial the node, reserve a circuit through it, and their messages flow;
 then DCUtR hole-punches a direct connection and the node drops out of the path.
 It is a switchboard, not a bottleneck.
 
-**The node never reads anything.** Messages are sealed end-to-end before they
-touch the wire. It sees ciphertext and routing metadata, nothing else. Running
-one does not make you a trusted party.
+The node never decrypts sealed direct messages. It does process signed
+control traffic and server-channel messages, so it can observe that metadata
+and plaintext protocol content. Running one does not make you a trusted party
+for the full protocol.
 
 ---
 
@@ -44,12 +45,15 @@ them the node does not fail gracefully, it fails to boot at all. None of the
 ```sh
 git clone https://github.com/PeersTech/ptero-egg.git
 cd ptero-egg
+docker login ghcr.io
 docker build -t ghcr.io/peerstech/ptero-egg:latest .
 docker push ghcr.io/peerstech/ptero-egg:latest
 ```
 
 If you would rather not push anywhere, build it as `peers-node:local` on each
-Wings host and pick the "build locally" image in the egg.
+Wings host and pick the "build locally" image in the egg. The egg marks that
+option `~peers-node:local` so Wings uses the local image without trying to
+pull it from a registry.
 
 > This is worth fixing upstream. If Peers ever puts Tauri behind a cargo
 > feature, `--node` becomes a plain static-ish binary and this image collapses
@@ -68,8 +72,9 @@ Panel → **Nests** → **Import Egg** → upload `egg-peers-node.json`.
 - **Docker image:** the one you built above.
 - **Memory:** 1 GB is plenty to *run* a node. The **install** needs more.
   See the note on build memory below.
-- **Disk:** 3 GB for a source install (the Rust toolchain and build artifacts
-  are discarded afterwards, but they need room while they exist). 200 MB after.
+- **Disk:** 3 GB for a source install. The installer builds in a temporary
+  directory on the server volume so Pterodactyl's memory-backed `/tmp` does
+  not fill during linking. 200 MB is enough after installation.
 - **Allocation:** one port. Peers uses it for **both TCP and QUIC/UDP**.
 
 ### 3. Open the port for both protocols
@@ -137,10 +142,11 @@ Both people who want to talk must point at the **same** node.
 The node's identity lives at `/home/container/.config/peers/node_identity.json`
 and is generated on first boot.
 
-**A Pterodactyl reinstall wipes the data volume.** Losing this file gives the
-node a new peer ID, and every client still holding the old one keeps dialling an
-address that now answers as somebody else, which looks like a network fault,
-not a configuration change. Download it via the file manager before reinstalling.
+A normal Pterodactyl reinstall preserves the server volume and this file.
+Deleting/recreating the server, replacing the volume, or manually removing the
+file gives the node a new peer ID, and every client still holding the old one
+keeps dialling an address that now answers as somebody else. Back up the file
+before destructive server operations.
 
 The same applies to the port: pin the allocation. Clients store the port
 alongside the peer ID, and an ephemeral one invalidates every config on each
@@ -157,21 +163,20 @@ automatically, retrying with exponential backoff from 10 seconds up to a
 | Variable | Default | Notes |
 |---|---|---|
 | `INSTALL_METHOD` | `source` | `source` or `release`. See below. |
-| `PEERS_REF` | `main` | Branch/tag/commit to build. Pin it. |
-| `PEERS_REPO` | upstream | Change only for a fork. |
+| `PEERS_REF` | `main` | Branch or tag to build. Pin it for a stable install. |
+| `PEERS_REPO` | `https://github.com/PeersTech/Peers.git` | Change only for a fork. |
 | `PEERS_PUBLIC_IP` | `auto` | The address clients dial. |
 | `PEERS_ANNOUNCE` | none | Full multiaddr override. Advanced. |
 | `PEERS_NODES` | none | Upstream nodes to chain to. |
 | `PEERS_NO_RELAY` | `0` | `1` forwards nothing. |
 | `CARGO_BUILD_JOBS` | `2` | Lower to `1` if the install is OOM-killed. |
 
-### `INSTALL_METHOD=release` does not work yet
+### `INSTALL_METHOD=release` is not ready
 
-PeersTech/Peers has published **no GitHub Releases and no tags**. The option is
-wired up and will pick up a release as soon as one exists, but until then it
-fails with an explanatory message rather than installing something broken.
-
-Use `source`.
+PeersTech/Peers has published no GitHub Releases yet. The option is kept for
+future compatibility, but it is not a supported install path until release
+assets have a documented checksum/signature and an exact Linux architecture
+contract. Use `source`.
 
 ### Build memory
 

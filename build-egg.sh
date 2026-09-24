@@ -8,10 +8,17 @@ cd "$(dirname "$0")"
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
+tmp="$(mktemp "${PWD}/.egg-peers-node.json.XXXXXX")"
+trap 'rm -f "${tmp}"' EXIT
+
 jq -n \
   --rawfile script install.sh \
   --slurpfile meta egg.meta.json \
   '$meta[0] | .scripts.installation.script = $script' \
-  > egg-peers-node.json
+  > "${tmp}"
+
+# Keep the last known-good importable artifact if jq fails or input is invalid.
+mv "${tmp}" egg-peers-node.json
+trap - EXIT
 
 echo "wrote egg-peers-node.json ($(wc -c < egg-peers-node.json) bytes)"

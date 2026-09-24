@@ -12,6 +12,7 @@ set -euo pipefail
 INSTALL_METHOD="${INSTALL_METHOD:-source}"
 PEERS_REF="${PEERS_REF:-main}"
 PEERS_REPO="${PEERS_REPO:-https://github.com/PeersTech/Peers.git}"
+BUILD_DIR="/mnt/server/.peers-build"
 
 say() { printf '\n\033[1;36m[peers]\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31m[peers] %s\033[0m\n' "$*" >&2; exit 1; }
@@ -35,7 +36,13 @@ if [ -f "${IDENTITY}" ]; then
 else
     say "no existing identity; one will be generated on first boot"
 fi
-mkdir -p /mnt/server/.config/peers
+# Do not pre-create this directory as root. The runtime container runs as the
+# server user and must create node_identity.json on first boot. If an older
+# install already created it as root, repair ownership when Wings provides its
+# runtime IDs.
+if [ -d /mnt/server/.config/peers ] && [ -n "${PUID:-}" ] && [ -n "${PGID:-}" ]; then
+    chown "${PUID}:${PGID}" /mnt/server/.config/peers
+fi
 
 case "${INSTALL_METHOD}" in
 release)
@@ -46,14 +53,13 @@ release)
         | head -n1 || true)"
 
     if [ -z "${URL}" ] || [ "${URL}" = "null" ]; then
-        die "No release asset found.
+        die "No compatible Linux x86_64 release asset found.
 
-PeersTech/Peers has not published any GitHub Releases yet, so there is
-nothing for this option to download. Until a release is cut, set the
-INSTALL_METHOD variable to 'source' and reinstall.
-
-(If you have just published one, make sure the asset filename contains
-'linux' or 'x86_64' so this script can identify it.)"
+PeersTech/Peers has not published a compatible binary yet. Set
+INSTALL_METHOD to 'source' and reinstall."
+    fi
+    if [ "$(uname -m)" != "x86_64" ]; then
+        die "release assets are currently x86_64-only; use INSTALL_METHOD=source on this host."
     fi
 
     say "downloading ${URL}"
@@ -77,10 +83,16 @@ source)
     . "${HOME}/.cargo/env"
 
     say "cloning ${PEERS_REPO} @ ${PEERS_REF}"
-    rm -rf /tmp/peers
-    git clone --depth 1 --branch "${PEERS_REF}" "${PEERS_REPO}" /tmp/peers \
-        || die "clone failed. Is PEERS_REF '${PEERS_REF}' a real branch or tag?"
-    cd /tmp/peers
+    rm -rf "${BUILD_DIR}"
+    # Build on the server volume, not Pterodactyl's memory-backed /tmp.
+    trap 'rm -rf "${BUILD_DIR}"' EXIT
+    git clone --depth 1 "${PEERS_REPO}" "${BUILD_DIR}" \
+        || die "clone failed. Check PEERS_REPO '${PEERS_REPO}'."
+    git -C "${BUILD_DIR}" fetch --depth 1 origin "${PEERS_REF}" \
+        || die "fetch failed. Is PEERS_REF '${PEERS_REF}' a branch, tag, or commit?"
+    git -C "${BUILD_DIR}" checkout --detach FETCH_HEAD \
+        || die "checkout failed for PEERS_REF '${PEERS_REF}'."
+    cd "${BUILD_DIR}"
 
     # ---------------------------------------------------------------------
     # tauri_build::build() runs generate_context!(), which reads the compiled
@@ -101,7 +113,7 @@ source)
     # what turns a slow install into an OOM kill on a small node.
     JOBS="${CARGO_BUILD_JOBS:-2}"
     say "building (jobs=${JOBS}). Expect 10-25 minutes on a small VPS"
-    cargo build --release --jobs "${JOBS}" \
+    cargo build --release --locked --jobs "${JOBS}" \
         || die "cargo build failed.
 
 The usual cause is the install container running out of memory while
