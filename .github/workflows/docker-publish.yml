@@ -1,4 +1,4 @@
-name: Publish runtime image
+name: Validate and publish runtime image
 
 on:
   push:
@@ -6,6 +6,19 @@ on:
     paths:
       - Dockerfile
       - entrypoint.sh
+      - install.sh
+      - build-egg.sh
+      - egg.meta.json
+      - egg-peers-node.json
+      - .github/workflows/docker-publish.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - install.sh
+      - build-egg.sh
+      - egg.meta.json
+      - egg-peers-node.json
       - .github/workflows/docker-publish.yml
   workflow_dispatch:
 
@@ -14,7 +27,27 @@ permissions:
   packages: write
 
 jobs:
+  validate:
+    name: Validate shell and egg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: bash -n install.sh entrypoint.sh build-egg.sh
+
+      - name: Regenerate egg
+        run: ./build-egg.sh
+
+      - name: Check generated egg is current
+        run: git diff --exit-code -- egg-peers-node.json
+
+      - name: Validate generated JSON
+        run: jq empty egg-peers-node.json
+
   push:
+    needs: validate
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

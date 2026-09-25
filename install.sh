@@ -12,7 +12,9 @@ set -euo pipefail
 INSTALL_METHOD="${INSTALL_METHOD:-source}"
 PEERS_REF="${PEERS_REF:-main}"
 PEERS_REPO="${PEERS_REPO:-https://github.com/PeersTech/Peers.git}"
+PEERS_RELEASE_SHA256="${PEERS_RELEASE_SHA256:-}"
 BUILD_DIR="/mnt/server/.peers-build"
+RELEASE_ASSET="peers-linux-x86_64"
 
 say() { printf '\n\033[1;36m[peers]\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31m[peers] %s\033[0m\n' "$*" >&2; exit 1; }
@@ -30,40 +32,89 @@ apt-get install -y -qq --no-install-recommends ca-certificates curl git file jq
 # keep dialling an address that now answers as somebody else. Nothing below
 # writes to this path, but say so loudly either way.
 # --------------------------------------------------------------------------
-IDENTITY="/mnt/server/.config/peers/node_identity.json"
+IDENTITY_DIR="/mnt/server/.config/peers"
+IDENTITY="${IDENTITY_DIR}/node_identity.json"
 if [ -f "${IDENTITY}" ]; then
     say "existing node identity found, peer ID will not change"
 else
     say "no existing identity; one will be generated on first boot"
 fi
+
 # Do not pre-create this directory as root. The runtime container runs as the
 # server user and must create node_identity.json on first boot. If an older
-# install already created it as root, repair ownership when Wings provides its
-# runtime IDs.
-if [ -d /mnt/server/.config/peers ] && [ -n "${PUID:-}" ] && [ -n "${PGID:-}" ]; then
-    chown "${PUID}:${PGID}" /mnt/server/.config/peers
+# install already created the config directory as root, repair the parent as
+# well as the identity directory when Wings provides its runtime IDs. Repairing
+# the existing tree recursively is important: changing only the directory
+# leaves an old root-owned node_identity.json unreadable or unwritable.
+if [ -d /mnt/server/.config ]; then
+    if [ -n "${PUID:-}" ] || [ -n "${PGID:-}" ]; then
+        if [ -z "${PUID:-}" ] || [ -z "${PGID:-}" ]; then
+            die "PUID and PGID must be provided together so identity ownership can be recovered"
+        fi
+        case "${PUID}${PGID}" in
+            *[!0-9]*)
+                die "PUID and PGID must be numeric"
+                ;;
+        esac
+        OWNER="${PUID}:${PGID}"
+    else
+        OWNER="$(stat -c '%u:%g' /mnt/server)"
+    fi
+
+    say "recovering ownership of /mnt/server/.config for ${OWNER}"
+    chown "${OWNER}" -- /mnt/server/.config
+    if [ -d "${IDENTITY_DIR}" ]; then
+        chown -R "${OWNER}" -- "${IDENTITY_DIR}"
+    fi
 fi
 
 case "${INSTALL_METHOD}" in
 release)
-    say "looking for a published release binary"
-    API="https://api.github.com/repos/PeersTech/Peers/releases/latest"
-    URL="$(curl -fsSL "${API}" 2>/dev/null \
-        | jq -r '.assets[]?.browser_download_url | select(test("linux|x86_64"))' \
-        | head -n1 || true)"
-
-    if [ -z "${URL}" ] || [ "${URL}" = "null" ]; then
-        die "No compatible Linux x86_64 release asset found.
-
-PeersTech/Peers has not published a compatible binary yet. Set
-INSTALL_METHOD to 'source' and reinstall."
-    fi
     if [ "$(uname -m)" != "x86_64" ]; then
         die "release assets are currently x86_64-only; use INSTALL_METHOD=source on this host."
     fi
+    if ! [[ "${PEERS_RELEASE_SHA256}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        die "INSTALL_METHOD=release requires PEERS_RELEASE_SHA256, a 64-character SHA-256 checksum supplied from a trusted source"
+    fi
+
+    say "looking for the exact Linux x86_64 release asset"
+    API="https://api.github.com/repos/PeersTech/Peers/releases/latest"
+    ASSETS="$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "${API}" 2>/dev/null \
+        | jq -c --arg asset "${RELEASE_ASSET}" \
+            '[.assets[]? | select(.name == $asset) | .browser_download_url]')" \
+        || die "could not query the latest Peers release"
+
+    if [ "$(jq 'length' <<<"${ASSETS}")" -ne 1 ]; then
+        die "expected exactly one release asset named '${RELEASE_ASSET}'.
+
+PeersTech/Peers has not published the exact Linux x86_64 binary required by
+this egg, or the release contains duplicate assets. Set INSTALL_METHOD to
+'source' and reinstall."
+    fi
+    URL="$(jq -r '.[0]' <<<"${ASSETS}")"
+    case "${URL}" in
+        https://github.com/PeersTech/Peers/releases/download/*/"${RELEASE_ASSET}")
+            ;;
+        *)
+            die "the selected release asset did not resolve to the expected GitHub URL"
+            ;;
+    esac
 
     say "downloading ${URL}"
-    curl -fsSL -o /mnt/server/peers "${URL}" || die "download failed"
+    DOWNLOAD_PATH="$(mktemp /mnt/server/.peers-release.XXXXXX)" \
+        || die "could not create a temporary release download"
+    if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        -o "${DOWNLOAD_PATH}" "${URL}"; then
+        rm -f -- "${DOWNLOAD_PATH}"
+        die "release download failed"
+    fi
+    if ! printf '%s  %s\n' "${PEERS_RELEASE_SHA256,,}" "${DOWNLOAD_PATH}" \
+        | sha256sum --check --status -; then
+        rm -f -- "${DOWNLOAD_PATH}"
+        die "release binary checksum verification failed; refusing to install it"
+    fi
+    say "release binary checksum verified"
+    mv -- "${DOWNLOAD_PATH}" /mnt/server/peers
     ;;
 
 source)

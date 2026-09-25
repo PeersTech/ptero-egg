@@ -7,7 +7,7 @@
   "exported_at": "2026-08-06T00:00:00+00:00",
   "name": "Peers Node",
   "author": "peers@peerstech.dev",
-  "description": "An always-on relay node for Peers, the serverless E2E-encrypted messenger. Two people behind ordinary home routers cannot connect directly; this node gives them a rendezvous point, then gets out of the way once DCUtR hole-punches a direct connection. It only ever sees ciphertext and routing metadata.",
+  "description": "An always-on relay node for Peers, the serverless peer-to-peer messenger. Two people behind ordinary home routers cannot connect directly; this node gives them a rendezvous point, then gets out of the way once DCUtR hole-punches a direct connection. Direct messages are sealed, while routing metadata and signed/plaintext server, Plaza, and control payloads may be visible to the node operator.",
   "features": null,
   "docker_images": {
     "Peers Node (ghcr)": "ghcr.io/peerstech/ptero-egg:latest",
@@ -31,7 +31,7 @@
   "variables": [
     {
       "name": "Install method",
-      "description": "'source' builds the node from the git repository (slow, 10-25 minutes, but always works). 'release' downloads a prebuilt binary from GitHub Releases. NOTE: PeersTech/Peers has not published any releases yet, so 'release' will fail with an explanatory message until one is cut. Leave this on 'source'.",
+      "description": "'source' builds the node from the git repository (slow, 10-25 minutes, but always works). 'release' downloads the exact Linux x86_64 asset named peers-linux-x86_64 from GitHub Releases and refuses it unless a trusted PEERS_RELEASE_SHA256 checksum is supplied. PeersTech/Peers has not published that asset yet, so leave this on 'source'.",
       "env_variable": "INSTALL_METHOD",
       "default_value": "source",
       "user_viewable": true,
@@ -57,6 +57,16 @@
       "user_viewable": true,
       "user_editable": false,
       "rules": "required|string|max:200",
+      "field_type": "text"
+    },
+    {
+      "name": "Release SHA-256",
+      "description": "Required only with INSTALL_METHOD=release. The 64-character SHA-256 checksum for the exact peers-linux-x86_64 asset, obtained from a trusted source. The installer refuses the download if the checksum is missing or does not match.",
+      "env_variable": "PEERS_RELEASE_SHA256",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:64",
       "field_type": "text"
     },
     {
