@@ -15,6 +15,16 @@ for the full protocol.
 
 ---
 
+## Message and attachment visibility
+
+The relay can observe routing metadata, signed control traffic, server/Plaza
+traffic, and DHT blob requests. Small server-channel attachments are raw DHT
+blobs and are not E2E encrypted. Direct-message attachments are sealed inside
+the DM envelope. Do not treat this node as a privacy boundary for every message
+type.
+
+---
+
 ## Files
 
 | File | What it is |
