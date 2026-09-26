@@ -10,9 +10,13 @@
 set -euo pipefail
 
 INSTALL_METHOD="${INSTALL_METHOD:-source}"
-PEERS_REF="${PEERS_REF:-main}"
+# Pinned to an immutable commit, not a branch. A tag or `main` can be moved
+# after review, which would silently change what this egg builds. Override
+# deliberately for local testing; production installs should stay pinned.
+PEERS_REF="${PEERS_REF:-5ee4331402a5138f155bd342357c76aa0e11c0da}"
 PEERS_REPO="${PEERS_REPO:-https://github.com/PeersTech/Peers.git}"
 PEERS_RELEASE_SHA256="${PEERS_RELEASE_SHA256:-}"
+RUSTUP_INIT_SHA256="${RUSTUP_INIT_SHA256:-}"
 BUILD_DIR="/mnt/server/.peers-build"
 RELEASE_ASSET="peers-linux-x86_64"
 
@@ -128,8 +132,47 @@ source)
         librsvg2-dev patchelf libxdo-dev libssl-dev
 
     say "installing rust"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --profile minimal --default-toolchain stable >/dev/null
+    # Fetch rustup-init as a file and verify it before executing it. Piping
+    # straight into `sh` runs whatever the CDN serves at that moment with no
+    # integrity check at all.
+    RUSTUP_HOST="https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu"
+
+    # The published checksum is the only trust anchor available in the install
+    # container, so the operator has to supply it out of band.
+    if ! [[ "${RUSTUP_INIT_SHA256}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        die "RUSTUP_INIT_SHA256 is required and must be a 64-character SHA-256.
+
+Fetch the published checksum and pass it as an install variable:
+
+  RUSTUP_INIT_SHA256=\$(curl -fsSL ${RUSTUP_HOST}/rustup-init.sha256 | cut -d' ' -f1)
+
+Verifying rustup-init is the only thing between a compromised mirror and root
+on the host, so this is not optional."
+    fi
+
+    # BUILD_DIR does not exist yet (the clone happens below), so stage the
+    # download in a directory we create here and clean up ourselves.
+    RUSTUP_STAGE="$(mktemp -d /mnt/server/.rustup-stage.XXXXXX)" \
+        || die "could not stage rustup-init"
+    RUSTUP_BIN="${RUSTUP_STAGE}/rustup-init"
+    if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        -o "${RUSTUP_BIN}" "${RUSTUP_HOST}/rustup-init"; then
+        rm -rf -- "${RUSTUP_STAGE}"
+        die "rustup-init download failed"
+    fi
+    if ! printf '%s  %s\n' "${RUSTUP_INIT_SHA256,,}" "${RUSTUP_BIN}" \
+        | sha256sum --check --status -; then
+        rm -rf -- "${RUSTUP_STAGE}"
+        die "rustup-init checksum verification failed; refusing to execute it"
+    fi
+    say "rustup-init checksum verified"
+
+    chmod +x "${RUSTUP_BIN}"
+    if ! "${RUSTUP_BIN}" -y --profile minimal --default-toolchain stable >/dev/null; then
+        rm -rf -- "${RUSTUP_STAGE}"
+        die "rustup-init failed"
+    fi
+    rm -rf -- "${RUSTUP_STAGE}"
     # shellcheck disable=SC1091
     . "${HOME}/.cargo/env"
 
@@ -143,6 +186,16 @@ source)
         || die "fetch failed. Is PEERS_REF '${PEERS_REF}' a branch, tag, or commit?"
     git -C "${BUILD_DIR}" checkout --detach FETCH_HEAD \
         || die "checkout failed for PEERS_REF '${PEERS_REF}'."
+
+    # Confirm what we actually built. A branch or tag resolves at fetch time,
+    # so a ref that moved between review and install would otherwise go
+    # unnoticed. A full 40-hex PEERS_REF must resolve to exactly itself.
+    RESOLVED="$(git -C "${BUILD_DIR}" rev-parse HEAD)"
+    if [[ "${PEERS_REF}" =~ ^[0-9a-fA-F]{40}$ ]] && [ "${RESOLVED,,}" != "${PEERS_REF,,}" ]; then
+        die "PEERS_REF pinned to ${PEERS_REF} but the clone resolved to ${RESOLVED}.
+Refusing to build a commit other than the one that was pinned."
+    fi
+    say "building Peers commit ${RESOLVED}"
     cd "${BUILD_DIR}"
 
     # ---------------------------------------------------------------------

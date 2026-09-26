@@ -188,9 +188,10 @@ automatically, retrying with exponential backoff from 10 seconds up to a
 | Variable | Default | Notes |
 |---|---|---|
 | `INSTALL_METHOD` | `source` | `source` or `release`. See below. |
-| `PEERS_REF` | `main` | Branch or tag to build. Pin it for a stable install. |
+| `PEERS_REF` | pinned commit | Commit SHA to build. A full 40-char SHA is verified against the clone and the install aborts on mismatch. |
 | `PEERS_REPO` | `https://github.com/PeersTech/Peers.git` | Change only for a fork. |
 | `PEERS_RELEASE_SHA256` | none | Required for `release`; the checksum of the exact Linux x86_64 asset. |
+| `RUSTUP_INIT_SHA256` | none | Required for `source`; the checksum of `rustup-init`. The installer will not run an unverified rustup. |
 | `PEERS_PUBLIC_IP` | `auto` | The address clients dial. |
 | `PEERS_ANNOUNCE` | none | Full multiaddr override. Advanced. |
 | `PEERS_NODES` | none | Upstream nodes to chain to. |
@@ -212,6 +213,24 @@ PeersTech/Peers has not published this exact asset yet, so the default
 contract, verify the checksum independently before entering it in the panel;
 a checksum from the same untrusted mutable page is not a substitute for a
 trusted value.
+
+### `INSTALL_METHOD=source` verifies the toolchain too
+
+`PEERS_REF` defaults to a pinned commit, not a branch, so a tag or `main` that
+moves after review cannot change what gets built. If you supply a full
+40-character commit SHA, the installer compares it against the resolved clone
+and aborts on any mismatch.
+
+Source installs also require `RUSTUP_INIT_SHA256`:
+
+```
+RUSTUP_INIT_SHA256=$(curl -fsSL https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init.sha256 | cut -d' ' -f1)
+```
+
+`rustup-init` is downloaded as a file, checksum-verified, and only then
+executed. The previous `curl https://sh.rustup.rs | sh` ran whatever the mirror
+returned with no integrity check, which is arbitrary code execution on the
+install container's root before a single Peers line is built.
 
 ### Build memory
 
